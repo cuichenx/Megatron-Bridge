@@ -60,6 +60,7 @@ except (ImportError, ModuleNotFoundError):
     from .perf_plugins import NsysPlugin, PerfEnvPlugin, PyTorchProfilerPlugin
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
+TRAINING_SCRIPT_DIR = SCRIPT_DIR.parent / "training"
 ENTRYPOINT_PEFORMANCE = "run_script.py"
 ENTRYPOINT_RECIPE = "run_recipe.py"
 
@@ -535,6 +536,7 @@ def main(
 
     if use_recipes:
         script_name = ENTRYPOINT_RECIPE
+        script_dir = TRAINING_SCRIPT_DIR
         exp_name = (
             wandb_experiment_name
             if wandb_experiment_name is not None
@@ -543,6 +545,7 @@ def main(
 
     else:
         script_name = ENTRYPOINT_PEFORMANCE
+        script_dir = SCRIPT_DIR
         # Create a simple namespace with the args needed by get_exp_name_config
         args_for_config = SimpleNamespace(
             num_gpus=num_gpus,
@@ -581,7 +584,7 @@ def main(
                 custom_mounts.append(save_dir_mount)
                 logger.info(f"Added checkpoint save directory mount for container: {save_dir_mount}")
 
-    run_script_path = SCRIPT_DIR / script_name
+    run_script_path = script_dir / script_name
     logger.info(f"Run script path: {run_script_path}")
     if not run_script_path.is_file():
         logger.error(f"Specified run script not found: {run_script_path}")
@@ -594,16 +597,25 @@ def main(
     # /opt/Megatron-Bridge — and custom_mounts do not apply, so the launcher's
     # /tmp path does not exist in the pod; use the image's script path instead.
     if kubeflow_namespace:
-        in_container_script_dir = "/opt/Megatron-Bridge/scripts/performance"
+        in_container_performance_script_dir = "/opt/Megatron-Bridge/scripts/performance"
+        in_container_training_script_dir = "/opt/Megatron-Bridge/scripts/training"
+        in_container_script_dir = (
+            in_container_training_script_dir if use_recipes else in_container_performance_script_dir
+        )
         in_container_script_path = f"{in_container_script_dir}/{script_name}"
     else:
-        in_container_script_dir = str(SCRIPT_DIR)
+        in_container_performance_script_dir = str(SCRIPT_DIR)
+        in_container_training_script_dir = str(TRAINING_SCRIPT_DIR)
+        in_container_script_dir = (
+            in_container_training_script_dir if use_recipes else in_container_performance_script_dir
+        )
         in_container_script_path = str(run_script_path)
 
     custom_mounts.extend(
         [
             f"{run_script_path}:{run_script_path}",
             f"{SCRIPT_DIR}:{SCRIPT_DIR}",
+            f"{TRAINING_SCRIPT_DIR}:{TRAINING_SCRIPT_DIR}",
         ]
     )
 
@@ -735,7 +747,7 @@ def main(
     nemorun_script = run.Script(
         path=in_container_script_path,
         entrypoint="python",
-        env={"PYTHONPATH": f"{in_container_script_dir}:$PYTHONPATH"},
+        env={"PYTHONPATH": f"{in_container_performance_script_dir}:{in_container_training_script_dir}:$PYTHONPATH"},
         args=_filter_run_script_args(sys.argv[1:]),
     )
 
@@ -939,6 +951,12 @@ if __name__ == "__main__":
     parser = parse_cli_args()
     args, unknown_args = parser.parse_known_args()
 
+    required_fields = ("model_family_name", "model_recipe_name", "num_gpus", "gpu")
+    missing = [field for field in required_fields if getattr(args, field) is None]
+    if missing:
+        formatted = ", ".join(f"--{field}" for field in missing)
+        parser.error(f"missing required recipe selector arguments: {formatted}")
+
     gpus_per_node = args.gpus_per_node
     if gpus_per_node is None:
         if args.gpu in NUM_GPUS_PER_NODE_MAP:
@@ -970,6 +988,7 @@ if __name__ == "__main__":
             gpu=args.gpu,
             compute_dtype=args.compute_dtype,
             task=args.task,
+            num_gpus=args.num_gpus,
         )
 
     main(

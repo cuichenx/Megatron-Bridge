@@ -45,21 +45,24 @@
 
 # Training script to run
 TRAINING_SCRIPT="run_recipe.py"
-# Options:
-# TRAINING_SCRIPT="run_recipe.py"
-# TRAINING_SCRIPT="pretrain_vlm.py"  # For VLM models
-# TRAINING_SCRIPT="finetune_vlm.py"  # For VLM finetuning
 
-# Recipe name (must match a recipe function from megatron.bridge.recipes)
-RECIPE="llama32_1b_pretrain_config"
+# Library recipe selector. These map to
+# megatron.bridge.recipes.<MODEL_FAMILY_NAME>.<MODEL_RECIPE_NAME>_<TASK>_config.
+USE_RECIPES=true
+MODEL_FAMILY_NAME="llama"
+MODEL_RECIPE_NAME="llama32_1b"
+TASK="pretrain"
 # Examples:
-# RECIPE="gemma3_1b_pretrain_config"
-# RECIPE="qwen3_8b_sft_config"
-# RECIPE="llama3_8b_pretrain_config"
-# RECIPE="qwen25_vl_pretrain_config"  # For VLM models
+# MODEL_FAMILY_NAME="gemma"; MODEL_RECIPE_NAME="gemma3_1b"; TASK="pretrain"
+# MODEL_FAMILY_NAME="qwen"; MODEL_RECIPE_NAME="qwen3_8b"; TASK="sft"
+# MODEL_FAMILY_NAME="llama"; MODEL_RECIPE_NAME="llama3_8b"; TASK="pretrain"
 
-# Forward step type (gpt or vlm)
-STEP_TYPE="gpt"
+# Runner dimensions used for overrides and performance recipe lookup.
+DOMAIN="llm"
+NUM_GPUS=16
+GPU="h100"
+COMPUTE_DTYPE="bf16"
+DATA="mock"
 
 # Optional: CLI overrides (Hydra-style dot notation)
 CLI_OVERRIDES=""
@@ -100,7 +103,9 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Nodes: $SLURM_JOB_NUM_NODES"
 echo "GPUs per node: $SLURM_GPUS_PER_NODE"
 echo "Script: $TRAINING_SCRIPT"
-echo "Recipe: $RECIPE"
+echo "Model family: $MODEL_FAMILY_NAME"
+echo "Model recipe: $MODEL_RECIPE_NAME"
+echo "Task: $TASK"
 if [ -n "$HF_TOKEN" ]; then
     echo "HF_TOKEN: Set"
 fi
@@ -126,8 +131,17 @@ CMD="$CMD --node_rank=\$SLURM_PROCID"
 CMD="$CMD --master_addr=\$(scontrol show hostname \$SLURM_NODELIST | head -n1)"
 CMD="$CMD --master_port=29500"
 CMD="$CMD $SCRIPT_PATH"
-CMD="$CMD --recipe $RECIPE"
-CMD="$CMD --step $STEP_TYPE"
+if [ "$USE_RECIPES" = true ]; then
+    CMD="$CMD --use_recipes"
+fi
+CMD="$CMD --domain $DOMAIN"
+CMD="$CMD --model_family_name $MODEL_FAMILY_NAME"
+CMD="$CMD --model_recipe_name $MODEL_RECIPE_NAME"
+CMD="$CMD --task $TASK"
+CMD="$CMD --num_gpus $NUM_GPUS"
+CMD="$CMD --gpu $GPU"
+CMD="$CMD --compute_dtype $COMPUTE_DTYPE"
+CMD="$CMD --data $DATA"
 
 # Add CLI overrides if specified
 if [ -n "$CLI_OVERRIDES" ]; then
@@ -158,4 +172,3 @@ $SRUN_CMD bash -c "$CMD"
 echo "======================================"
 echo "Job completed"
 echo "======================================"
-

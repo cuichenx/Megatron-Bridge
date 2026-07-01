@@ -25,13 +25,23 @@ Usage:
     python launch_with_nemo_run.py \
         --local \
         --script run_recipe.py \
-        --recipe llama32_1b_pretrain_config \
-        --devices 2
+        --devices 2 \
+        --use_recipes \
+        -m llama \
+        -mr llama32_1b \
+        --task pretrain \
+        -ng 2 \
+        -g h100
 
     # Launch on Slurm from the cluster (LocalTunnel)
     python launch_with_nemo_run.py \
         --script run_recipe.py \
-        --recipe llama32_1b_pretrain_config \
+        --use_recipes \
+        -m llama \
+        -mr llama32_1b \
+        --task pretrain \
+        -ng 16 \
+        -g h100 \
         --nodes 2 \
         --partition gpu \
         --account my_account
@@ -39,7 +49,12 @@ Usage:
     # Launch on Slurm from your local machine (SSHTunnel)
     python launch_with_nemo_run.py \
         --script run_recipe.py \
-        --recipe llama32_1b_sft_config \
+        --use_recipes \
+        -m llama \
+        -mr llama32_1b \
+        --task sft \
+        -ng 8 \
+        -g h100 \
         --nodes 1 \
         --partition gpu \
         --account my_account \
@@ -51,71 +66,25 @@ Usage:
     # With CLI overrides
     python launch_with_nemo_run.py \
         --script run_recipe.py \
-        --recipe gemma3_1b_pretrain_config \
+        --use_recipes \
+        -m gemma \
+        -mr gemma3_1b \
+        --task pretrain \
+        -ng 8 \
+        -g h100 \
         --nodes 1 \
         --partition gpu \
         --account my_account \
         train.train_iters=5000 \
         optimizer.lr=0.0002
 
-    # With containers (uses PatternPackager by default)
-    python launch_with_nemo_run.py \
-        --script run_recipe.py \
-        --recipe qwen3_8b_pretrain_config \
-        --nodes 1 \
-        --partition gpu \
-        --account my_account \
-        --container-image /path/to/container.sqsh \
-        --mount /data:/data
-
-    # With custom packager (git archive)
-    python launch_with_nemo_run.py \
-        --script run_recipe.py \
-        --recipe llama3_8b_pretrain_config \
-        --nodes 2 \
-        --partition gpu \
-        --account my_account \
-        --container-image /path/to/container.sqsh \
-        --packager git
-
-    # With environment variables (HF token, W&B key, etc.)
-    python launch_with_nemo_run.py \
-        --script /opt/Megatron-Bridge/scripts/training/run_recipe.py \
-        --recipe llama32_1b_pretrain_config \
-        --nodes 1 \
-        --partition gpu \
-        --account my_account \
-        --container-image /path/to/container.sqsh \
-        --mount /path/to/Megatron-Bridge:/opt/Megatron-Bridge \
-        --env HF_TOKEN=your_token \
-        --env WANDB_API_KEY=your_key
-
-    # With fault-tolerant launcher
-    python launch_with_nemo_run.py \
-        --script run_recipe.py \
-        --recipe llama32_1b_pretrain_config \
-        --launcher ft \
-        --nodes 2 \
-        --partition gpu \
-        --account my_account
-
-    # Wait for completion and tail logs
-    python launch_with_nemo_run.py \
-        --script run_recipe.py \
-        --recipe llama32_1b_pretrain_config \
-        --nodes 1 \
-        --partition gpu \
-        --account my_account \
-        --no-detach \
-        --tail-logs
-
 Note:
 - Use --local for single-node testing with LocalExecutor
 - Use --ssh-tunnel when launching to Slurm from your local machine
 - Omit --ssh-tunnel when already on the Slurm cluster (uses LocalTunnel)
 - By default, jobs are submitted and detached (use --no-detach --tail-logs to monitor)
-- With containers, scripts are auto-packaged using PatternPackager (or use --packager git)
-- Any unknown arguments are forwarded to the training script
+- With containers, scripts can be packaged using PatternPackager or GitArchivePackager
+- Any unknown arguments are forwarded to the training script.
 - Adjust cluster-specific settings (account, partition, container paths)
 """
 
@@ -147,12 +116,6 @@ def parse_args() -> tuple[argparse.Namespace, list[str]]:
         type=str,
         required=True,
         help="Training script to run (e.g., run_recipe.py, pretrain_vlm.py, finetune_vlm.py)",
-    )
-    parser.add_argument(
-        "--recipe",
-        type=str,
-        required=True,
-        help="Recipe name (e.g., llama32_1b_pretrain_config)",
     )
     parser.add_argument(
         "--launcher",
@@ -307,24 +270,23 @@ def main() -> None:
         script_path = SCRIPT_DIR / args.script
         if not script_path.exists():
             raise FileNotFoundError(f"Training script not found: {script_path}")
+        task_script_path = str(script_path)
 
-    script_args = ["--recipe", args.recipe]
-    if forwarded_args:
-        script_args.extend(forwarded_args)
+    script_args = forwarded_args
 
     # Determine packager
     if args.packager == "pattern":
-        packager = run.PatternPackager(include_pattern="*.py", relative_path=str(SCRIPT_DIR))
+        packager = run.PatternPackager(include_pattern="**/*.py", relative_path=str(SCRIPT_DIR.parent))
         logger.info("Using PatternPackager")
         # For pattern packager, use relative path
         if not Path(args.script).is_absolute():
-            task_script_path = args.script
+            task_script_path = f"{SCRIPT_DIR.name}/{args.script}"
     elif args.packager == "git":
-        packager = run.GitArchivePackager(subpath="scripts/training")
+        packager = run.GitArchivePackager(subpath="scripts")
         logger.info("Using GitArchivePackager")
         # For git packager, use relative path
         if not Path(args.script).is_absolute():
-            task_script_path = args.script
+            task_script_path = f"{SCRIPT_DIR.name}/{args.script}"
     else:  # none
         packager = run.Packager()
         logger.info("Using passthrough packager (no packaging)")

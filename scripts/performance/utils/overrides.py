@@ -378,8 +378,10 @@ def set_user_overrides(recipe: ConfigContainer, args: argparse.Namespace) -> Con
         recipe.tokenizer = TokenizerConfig(
             tokenizer_type="SentencePieceTokenizer", tokenizer_model=args.tokenizer_model
         )
-    # Create dataset configuration based on type
-    if args.data == "mock":
+    # Create dataset configuration only when the user requests a benchmark dataset override.
+    if args.data is None:
+        pass
+    elif args.data == "mock":
         if args.domain == "llm":
             # Override the dataset configuration for LLM models.
             # For vlm models, use the default dataset configuration in model recipe,
@@ -490,7 +492,7 @@ def set_user_overrides(recipe: ConfigContainer, args: argparse.Namespace) -> Con
 
     if args.moe_flex_dispatcher_backend is not None:
         apply_flex_dispatcher_backend(recipe.model, args.moe_flex_dispatcher_backend)
-    elif hasattr(recipe.model, "moe_token_dispatcher_type"):
+    elif not args.use_recipes and hasattr(recipe.model, "moe_token_dispatcher_type"):
         recipe.model.moe_token_dispatcher_type = "alltoall"
 
     pp_size = getattr(recipe.model, "pipeline_model_parallel_size", 1) or 1

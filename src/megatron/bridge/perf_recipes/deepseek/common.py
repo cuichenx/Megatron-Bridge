@@ -28,7 +28,7 @@ from megatron.bridge.training.config import ConfigContainer
 
 
 def _deepseek_v3_common(cfg: ConfigContainer) -> None:
-    """Apply DeepSeek V3 perf defaults shared by the legacy workload configs."""
+    """Apply DeepSeek V3 perf defaults shared by flat perf recipes."""
     cfg.dataset.seq_length = cfg.model.seq_length
     cfg.model.moe_router_fusion = True
     cfg.model.recompute_granularity = "selective"
@@ -43,7 +43,7 @@ def _enable_deepseek_full_iteration_mxfp8(
     fp8_dot_product_attention: bool = False,
     fp8_output_proj: bool = False,
 ) -> None:
-    """Apply legacy DeepSeek V3 HybridEP full-iteration MXFP8 settings."""
+    """Apply DeepSeek V3 HybridEP full-iteration MXFP8 settings."""
     cfg.model.cuda_graph_impl = "full_iteration"
     cfg.model.cuda_graph_scope = []
     cfg.model.high_priority_a2a_comm_stream = True
@@ -65,7 +65,7 @@ def _enable_deepseek_full_iteration_mxfp8(
 
 
 def _enable_deepseek_transformer_engine_graph(cfg: ConfigContainer) -> None:
-    """Apply legacy DeepSeek V3 Transformer Engine graph capture settings."""
+    """Apply DeepSeek V3 Transformer Engine graph capture settings."""
     cfg.model.cuda_graph_impl = "transformer_engine"
     cfg.model.cuda_graph_scope = ["attn", "moe_router", "moe_preprocess"]
     cfg.model.use_te_rng_tracker = True

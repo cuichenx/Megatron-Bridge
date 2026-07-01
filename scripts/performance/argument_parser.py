@@ -26,6 +26,27 @@ logger: logging.Logger = logging.getLogger(__name__)
 DEFAULT_NEMO_HOME = os.getenv("NEMO_HOME", Path.home() / ".cache" / "nemo")
 VALID_CUDA_GRAPH_IMPLS = ["none", "local", "transformer_engine"]
 VALID_CUDA_GRAPH_SCOPES = ["full_iteration", "attn", "mlp", "moe", "moe_router", "moe_preprocess", "mamba"]
+DATASET_TYPES = [
+    "llm-pretrain",
+    "llm-pretrain-mock",
+    "llm-finetune",
+    "llm-finetune-preloaded",
+    "vlm-energon",
+    "vlm-hf",
+    "vlm-preloaded",
+]
+STEP_FUNCTION_TYPES = [
+    "audio_lm_step",
+    "flux_step",
+    "gpt_step",
+    "llava_step",
+    "nemotron_omni_step",
+    "qwen3_omni_step",
+    "qwen3_vl_step",
+    "step37_flickr8k_step",
+    "vlm_step",
+    "wan_step",
+]
 
 NUM_GPUS_PER_NODE_MAP = {
     "h100": 8,
@@ -179,14 +200,27 @@ def parse_cli_args():
         "--model_family_name",
         type=lower_str,
         help="Model family name to use for experiment. E.g. `--model_family_name llama` (not llama3)",
-        required=True,
     )
     parser.add_argument(
         "-mr",
         "--model_recipe_name",
         type=lower_str,
         help="Model recipe name to use for experiment. E.g. `--model_recipe_name llama31_405b`",
-        required=True,
+    )
+    parser.add_argument(
+        "--recipe",
+        type=str,
+        help=(
+            "Full library or flat perf recipe function name. This compatibility path supports recipes whose "
+            "names do not fit the -m/-mr/--task convention."
+        ),
+    )
+    parser.add_argument(
+        "--recipe_source",
+        type=str,
+        choices=["auto", "recipes", "perf_recipes"],
+        default="auto",
+        help="Source used with --recipe. 'auto' checks library recipes first, then flat performance recipes.",
     )
     parser.add_argument(
         "--use_recipes",
@@ -224,7 +258,6 @@ def parse_cli_args():
         "--num_gpus",
         type=int,
         help="Number of gpus.",
-        required=True,
     )
     parser.add_argument(
         "--hidden_size",
@@ -322,9 +355,16 @@ def parse_cli_args():
     data_args.add_argument(
         "--data",
         type=str,
-        default="mock",
+        default=None,
         choices=["mock", "rp2", "squad", "squad_packed", "c4"],
-        help="Dataset type to use",
+        help="Benchmark dataset override to use. If omitted, the recipe dataset is left unchanged.",
+    )
+    data_args.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        choices=DATASET_TYPES,
+        help="Library recipe dataset preset used with --recipe compatibility mode.",
     )
     data_args.add_argument(
         "--c4_root",
@@ -350,6 +390,25 @@ def parse_cli_args():
         "--diffusion_dataset_path",
         type=str,
         help="WebDataset root path for diffusion recipes (FLUX, WAN). When unset, recipes fall back to mock data.",
+    )
+    data_args.add_argument(
+        "--step_func",
+        type=str,
+        choices=STEP_FUNCTION_TYPES,
+        default=None,
+        help="Forward step function override. If omitted, the runner selects a default from --domain.",
+    )
+    data_args.add_argument(
+        "--peft_scheme",
+        type=str,
+        default=None,
+        help="PEFT scheme to pass to full recipe-name builders that accept it.",
+    )
+    data_args.add_argument(
+        "--hf_path",
+        type=str,
+        default=None,
+        help="HuggingFace model ID or local model path to pass to full recipe-name builders that accept it.",
     )
 
     # Tokenizer configuration
@@ -669,7 +728,6 @@ def parse_cli_args():
         type=str,
         choices=NUM_GPUS_PER_NODE_MAP.keys(),
         help="Target gpu type.",
-        required=True,
     )
     performance_args.add_argument(
         "-c",

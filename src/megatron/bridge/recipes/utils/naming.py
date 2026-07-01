@@ -35,7 +35,9 @@ def normalize_precision_name(precision: str) -> str:
 
 def recipe_variant_suffix(config_variant: str | None) -> str:
     """Return the function-name suffix used for non-canonical recipe variants."""
-    return f"_{config_variant}" if config_variant and config_variant not in {"v1", "v2", "v3"} else ""
+    if config_variant is None or config_variant.lower() == "v2":
+        return ""
+    return f"_{config_variant.lower()}"
 
 
 def recipe_function_name(
