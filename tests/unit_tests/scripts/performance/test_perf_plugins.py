@@ -68,3 +68,27 @@ def test_perf_env_plugin_num_gpus_is_optional():
     )
 
     assert plugin.num_gpus is None
+
+
+def test_recipe_environment_defaults_preserve_explicit_executor_values():
+    """Recipe defaults and plugin fallbacks must not replace explicit launcher values."""
+    plugin = PerfEnvPlugin(
+        model_family_name="deepseek",
+        model_recipe_name="deepseek_v3",
+        gpu="gb200",
+        compute_dtype="bf16",
+        train_task="pretrain",
+        num_gpus=256,
+    )
+    executor = MagicMock()
+    executor.env_vars = {
+        "NVTE_FWD_LAYERNORM_SM_MARGIN": "48",
+        "USE_MNNVL": "custom",
+    }
+
+    plugin._set_layernorm_sm_margin(MagicMock(), executor, True, 16)
+    plugin._set_nvl_domain_size(MagicMock(), executor, "hybridep", "gb200", 64)
+
+    assert executor.env_vars["NVTE_FWD_LAYERNORM_SM_MARGIN"] == "48"
+    assert executor.env_vars["USE_MNNVL"] == "custom"
+    assert executor.env_vars["NUM_OF_HYBRID_EP_RANKS_PER_NVLINK_DOMAIN"] == "64"

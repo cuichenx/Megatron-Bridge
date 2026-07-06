@@ -23,7 +23,7 @@ import re
 import select
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 
@@ -92,6 +92,8 @@ class WorkloadBaseConfig:
 
     global_batch_size: int = 1
     micro_batch_size: int = 1
+
+    env_vars: dict[str, str | int | float | bool] = field(default_factory=dict)
 
     use_megatron_fsdp: bool | None = None
     nccl_ub: bool | None = None
@@ -353,6 +355,7 @@ def _workload_base_config_from_recipe(config, *, num_gpus: int) -> WorkloadBaseC
         expert_tensor_parallel_size=getattr(model, "expert_tensor_parallel_size", None),
         global_batch_size=train.global_batch_size,
         micro_batch_size=train.micro_batch_size,
+        env_vars=dict(config.env_vars),
         use_megatron_fsdp=getattr(ddp, "use_megatron_fsdp", None),
         nccl_ub=getattr(ddp, "nccl_ub", None),
         cuda_graph_impl=getattr(model, "cuda_graph_impl", None),
