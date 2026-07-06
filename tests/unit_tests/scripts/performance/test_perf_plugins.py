@@ -35,6 +35,7 @@ except ImportError:
 pytestmark = pytest.mark.skipif(not HAS_NEMO_RUN, reason="nemo_run not installed")
 
 if HAS_NEMO_RUN:
+    import perf_plugins
     from perf_plugins import PerfEnvPlugin
 
 
@@ -92,3 +93,19 @@ def test_recipe_environment_defaults_preserve_explicit_executor_values():
     assert executor.env_vars["NVTE_FWD_LAYERNORM_SM_MARGIN"] == "48"
     assert executor.env_vars["USE_MNNVL"] == "custom"
     assert executor.env_vars["NUM_OF_HYBRID_EP_RANKS_PER_NVLINK_DOMAIN"] == "64"
+
+
+def test_plugin_added_environment_is_forced_into_slurm_container(monkeypatch):
+    """Slurm container_env should reflect the final plugin environment keys."""
+
+    class FakeSlurmExecutor:
+        def __init__(self):
+            self.env_vars = {"TORCHINDUCTOR_WORKER_START": "fork"}
+            self.container_env = []
+
+    monkeypatch.setattr(perf_plugins, "SlurmExecutor", FakeSlurmExecutor)
+    executor = FakeSlurmExecutor()
+
+    PerfEnvPlugin._sync_slurm_container_env(executor)
+
+    assert executor.container_env == ["TORCHINDUCTOR_WORKER_START"]
