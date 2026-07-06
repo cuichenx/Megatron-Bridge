@@ -35,7 +35,7 @@ from megatron.bridge.models.gpt_provider import GPTModelProvider
 
 
 class TestGemma4DenseProviderDefaults:
-    """Config-level checks for the Dense E4B text provider."""
+    """Config-level checks for Gemma 4 dense text providers."""
 
     @pytest.fixture
     def provider(self):
@@ -52,6 +52,7 @@ class TestGemma4DenseProviderDefaults:
             ("kv_channels", 256),
             ("global_kv_channels", 512),
             ("num_global_query_groups", 2),
+            ("attention_k_eq_v", False),
             ("seq_length", 131_072),
             ("vocab_size", 262_143),
             ("make_vocab_size_divisible_by", 128),
@@ -318,6 +319,26 @@ class TestGemma4ModelProviderDefaults:
         assert provider.fp16 is False
         assert provider.params_dtype == torch.bfloat16
         assert provider.autocast_dtype == torch.bfloat16
+
+    @pytest.mark.parametrize(
+        "provider",
+        [
+            Gemma4ModelProvider(transformer_impl="inference_optimized"),
+            Gemma4ModelProvider(cuda_graph_impl="transformer_engine"),
+            Gemma4ModelProvider(moe_shared_expert_overlap=True),
+            Gemma4ModelProvider(mlp_chunks_for_prefill=2),
+            Gemma4ModelProvider(mlp_chunks_for_training=2),
+            Gemma4ModelProvider(inference_fuse_tp_communication=True),
+            Gemma4ModelProvider(recompute_granularity="selective", recompute_modules=["layernorm"]),
+            Gemma4ModelProvider(
+                fine_grained_activation_offloading=True,
+                offload_modules=["mlp_norm"],
+            ),
+        ],
+    )
+    def test_finalize_rejects_unsupported_custom_moe_orchestration(self, provider):
+        with pytest.raises(ValueError, match="Gemma 4 MoE"):
+            provider.finalize()
 
     def test_provide_restores_dual_rotary_base(self, provider):
         mock_model = Mock()
