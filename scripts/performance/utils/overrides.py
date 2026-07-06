@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,13 +15,12 @@
 import argparse
 import logging
 import os
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from omegaconf import OmegaConf
 
 from megatron.bridge.recipes.deepseek.deepseek_v3 import set_deepseek_v3_pipeline_model_parallel_layout
 from megatron.bridge.recipes.kimi.kimi_k2 import _get_kimi_k2_pipeline_layout
-from megatron.bridge.recipes.utils.determinism_utils import apply_determinism_overrides
 from megatron.bridge.training.comm_overlap import *
 from megatron.bridge.training.config import ConfigContainer, TokenizerConfig
 from megatron.bridge.training.flex_dispatcher_backend import apply_flex_dispatcher_backend
@@ -303,8 +302,13 @@ def _set_nccl_ub_overrides(recipe: ConfigContainer, nccl_ub: bool = False) -> Co
     return recipe
 
 
-def set_user_overrides(recipe: ConfigContainer, args: argparse.Namespace) -> ConfigContainer:
-    """Set the user overrides."""
+def set_user_overrides(
+    recipe: ConfigContainer,
+    args: argparse.Namespace,
+    *,
+    recipe_source: Literal["library", "performance"] = "performance",
+) -> ConfigContainer:
+    """Apply explicit argparse overrides for a library or performance recipe."""
     _set_megatron_fsdp_overrides(recipe, use_megatron_fsdp=args.use_megatron_fsdp)
     _set_nccl_ub_overrides(recipe, nccl_ub=args.nccl_ub)
     _set_cuda_graph_overrides(
@@ -334,10 +338,17 @@ def set_user_overrides(recipe: ConfigContainer, args: argparse.Namespace) -> Con
         recipe.logger.wandb_entity = args.wandb_entity_name
         recipe.logger.wandb_save_dir = "/nemo_run/wandb"
 
-    recipe.logger.save_config_filepath = args.save_config_filepath or "/nemo_run/configs/ConfigContainer.yaml"
-    # maybe_log_and_save_config calls cfg.to_yaml() during training startup; that uses
-    # plain open(..., "w") and fails if the parent dir doesn't exist. Ensure it does.
-    os.makedirs(os.path.dirname(os.path.abspath(recipe.logger.save_config_filepath)), exist_ok=True)
+    save_config_path_changed = False
+    if args.save_config_filepath is not None:
+        recipe.logger.save_config_filepath = args.save_config_filepath
+        save_config_path_changed = True
+    elif recipe_source == "performance":
+        recipe.logger.save_config_filepath = "/nemo_run/configs/ConfigContainer.yaml"
+        save_config_path_changed = True
+    if save_config_path_changed:
+        # maybe_log_and_save_config calls cfg.to_yaml() during training startup; that uses
+        # plain open(..., "w") and fails if the parent dir doesn't exist. Ensure it does.
+        os.makedirs(os.path.dirname(os.path.abspath(recipe.logger.save_config_filepath)), exist_ok=True)
 
     if args.max_steps is not None:
         recipe.train.train_iters = args.max_steps
@@ -492,15 +503,12 @@ def set_user_overrides(recipe: ConfigContainer, args: argparse.Namespace) -> Con
 
     if args.moe_flex_dispatcher_backend is not None:
         apply_flex_dispatcher_backend(recipe.model, args.moe_flex_dispatcher_backend)
-    elif not args.use_recipes and hasattr(recipe.model, "moe_token_dispatcher_type"):
+    elif recipe_source == "performance" and hasattr(recipe.model, "moe_token_dispatcher_type"):
         recipe.model.moe_token_dispatcher_type = "alltoall"
 
     pp_size = getattr(recipe.model, "pipeline_model_parallel_size", 1) or 1
     if args.task == "peft" and pp_size > 1 and not recipe.ddp.use_megatron_fsdp:
         recipe.dist.use_tp_pp_dp_mapping = True
-
-    if args.deterministic:
-        apply_determinism_overrides(recipe)
 
     return recipe
 

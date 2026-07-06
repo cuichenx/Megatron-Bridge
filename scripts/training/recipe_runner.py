@@ -21,6 +21,7 @@ import inspect
 import logging
 import os
 import pkgutil
+import re
 from collections.abc import Callable
 from typing import Literal, cast
 
@@ -32,7 +33,12 @@ from megatron.bridge.recipes.utils.naming import (
     recipe_function_name,
     recipe_variant_suffix,
 )
-from megatron.bridge.training.config import ConfigContainer, TokenizerConfig, runtime_config_update
+from megatron.bridge.training.config import (
+    ConfigContainer,
+    TokenizerConfig,
+    apply_environment_variables,
+    runtime_config_update,
+)
 from megatron.bridge.training.finetune import finetune
 from megatron.bridge.training.pretrain import pretrain
 from megatron.bridge.training.utils.omegaconf_utils import process_config_with_overrides
@@ -40,6 +46,11 @@ from megatron.bridge.utils.common_utils import get_rank_safe
 
 
 logger = logging.getLogger(__name__)
+
+SENSITIVE_ENV_VAR_PATTERN = re.compile(
+    r"(^|_)(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|ACCESS_KEY|SECRET_KEY|PRIVATE_KEY|AUTHORIZATION)(_|$)",
+    re.IGNORECASE,
+)
 
 RecipeSource = Literal["auto", "recipes", "perf_recipes"]
 
@@ -69,6 +80,26 @@ ERR_INFER_MODE_FAILED = (
     "Pass --dataset to specify the dataset type, or include 'pretrain' or 'finetune' "
     "(or 'sft'/'peft'/'lora') in the recipe name."
 )
+
+
+def dump_env_rank0() -> None:
+    """Write a redacted compute-node environment dump on Slurm rank zero."""
+    if os.environ.get("SLURM_JOB_ID") is None or int(os.environ.get("SLURM_PROCID", "-1")) != 0:
+        return
+
+    env_path = f"/nemo_run/env_{os.environ['SLURM_JOB_ID']}.log"
+    try:
+        fd = os.open(env_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as env_file:
+            for key, value in sorted(os.environ.items()):
+                if SENSITIVE_ENV_VAR_PATTERN.search(key):
+                    env_file.write(f"{key}=[REDACTED]\n")
+                else:
+                    safe_value = value.replace("\r", "\\r").replace("\n", "\\n")
+                    env_file.write(f"{key}={safe_value}\n")
+        logger.info("Environment dump written to %s (mode 600)", env_path)
+    except OSError as error:
+        logger.warning("Failed to write environment dump to %s: %s", env_path, error)
 
 
 def _recipe_kwargs_for_signature(
@@ -430,18 +461,23 @@ def run_config(
     save_config_filepath: str | None = None,
     barrier_before_destroy: bool = False,
     dryrun_num_gpus: int | None = None,
+    dump_environment: bool = False,
 ) -> bool:
     """Run or dry-run a ConfigContainer with the selected training function.
 
     Returns:
         True when the caller should return without launching training.
     """
+    apply_environment_variables(config)
+    if dump_environment:
+        dump_env_rank0()
+
     if dryrun:
         if dryrun_num_gpus is not None:
-            if "WORLD_SIZE" not in os.environ and "SLURM_NTASKS" not in os.environ:
-                os.environ["WORLD_SIZE"] = str(dryrun_num_gpus)
-            if "RANK" not in os.environ and "SLURM_PROCID" not in os.environ:
-                os.environ["RANK"] = "0"
+            # Validate the requested topology, even when inspecting it from a
+            # smaller local or Slurm allocation.
+            os.environ["WORLD_SIZE"] = str(dryrun_num_gpus)
+            os.environ["RANK"] = "0"
             runtime_config_update(config)
         save_config(config, save_config_filepath or "ConfigContainer.yaml")
         return True

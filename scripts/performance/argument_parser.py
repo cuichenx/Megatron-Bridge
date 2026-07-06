@@ -216,16 +216,9 @@ def parse_cli_args():
         ),
     )
     parser.add_argument(
-        "--recipe_source",
-        type=str,
-        choices=["auto", "recipes", "perf_recipes"],
-        default="auto",
-        help="Source used with --recipe. 'auto' checks library recipes first, then flat performance recipes.",
-    )
-    parser.add_argument(
         "--use_recipes",
         action="store_true",
-        help="Use library recipes. Disabled by default.",
+        help="Select the library recipe entry point when launching through setup_experiment.py.",
         default=False,
     )
     parser.add_argument(

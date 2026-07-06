@@ -8,7 +8,7 @@ Use `pretrain()` for language-model pretraining jobs that use `GPTDatasetConfig`
 
 Use `finetune()` for full SFT and PEFT. The function validates that either `checkpoint.pretrained_checkpoint` or `checkpoint.load` is set, then calls the same underlying training loop used by `pretrain()`. PEFT does not use a separate entry point: set `cfg.peft` to a LoRA or DoRA config, use a finetuning dataset config or provider, and launch through `finetune()`.
 
-The generic recipe launcher, `scripts/training/run_recipe.py`, follows the same split. Pass `--task pretrain` to run `pretrain()`, and pass `--task sft` or `--task lora` to run `finetune()`. Use `--use_recipes` to load library recipes from `megatron.bridge.recipes`; omit it to load flat performance recipes from `megatron.bridge.perf_recipes`.
+The generic recipe launcher, `scripts/training/run_recipe.py`, loads library recipes from `megatron.bridge.recipes`; `scripts/performance/run_script.py` loads flat performance recipes from `megatron.bridge.perf_recipes`. Pass `--task pretrain` to run `pretrain()`, and pass `--task sft` or `--task peft` to run `finetune()`. The `--use_recipes` flag is only a `setup_experiment.py` launcher selector; recipe source is determined by the rank-local entry point.
 
 ## Checkpoint Source by Workflow
 
