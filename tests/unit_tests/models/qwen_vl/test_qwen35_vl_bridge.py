@@ -369,6 +369,22 @@ class TestQwen35VLMoEBridgeMappingRegistry:
         assert any("experts" in n for n in names), "Should contain expert MLPs"
         assert any("shared_expert" in n for n in names), "Should contain shared experts"
 
+    def test_mapping_registry_sequential_experts_are_fused(self, bridge):
+        # Sequential (non-grouped) expert mappings, used when moe_grouped_gemm=False (e.g. ModelOpt
+        # pruning), must read the *fused* HF experts (gate_up_proj / down_proj) the decoder stores.
+        # A per-expert mapping here would silently skip a fused checkpoint and random-init the experts.
+        mappings = bridge.mapping_registry().mappings
+        seq_fc1 = [
+            m for m in mappings if getattr(m, "megatron_param", "").endswith("local_experts.*.linear_fc1.weight")
+        ]
+        seq_fc2 = [
+            m for m in mappings if getattr(m, "megatron_param", "").endswith("local_experts.*.linear_fc2.weight")
+        ]
+        assert len(seq_fc1) == 1 and type(seq_fc1[0]).__name__ == "FusedGatedExpertMapping"
+        assert seq_fc1[0].hf_param.endswith("experts.gate_up_proj")
+        assert len(seq_fc2) == 1 and type(seq_fc2[0]).__name__ == "FusedExpertMapping"
+        assert seq_fc2[0].hf_param.endswith("experts.down_proj")
+
     def test_mapping_registry_has_gdn_mappings(self, bridge):
         names = self._get_mapping_names(bridge.mapping_registry())
         assert any("in_proj" in n for n in names)
