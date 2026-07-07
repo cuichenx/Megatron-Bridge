@@ -747,12 +747,47 @@ class TestQwen35MoEBridge:
         fused_expert_mappings = [m for m in registry.mappings if type(m).__name__ == "FusedExpertMapping"]
         assert len(fused_expert_mappings) > 0
 
-        # Sequential (non-grouped) expert mappings must also be present, for moe_grouped_gemm=False
-        # (e.g. ModelOpt pruning). Guards against accidental removal.
-        seq_params = [
-            getattr(m, "megatron_param", "")
+        # Sequential (non-grouped) expert mappings, used when moe_grouped_gemm=False (e.g. ModelOpt
+        # pruning), must read the *fused* HF experts (gate_up_proj / down_proj) the decoder stores.
+        # A per-expert mapping here would silently skip a fused checkpoint and random-init the experts.
+        seq_fc1 = [
+            m
             for m in registry.mappings
-            if "experts.local_experts." in getattr(m, "megatron_param", "")
+            if getattr(m, "megatron_param", "").endswith("local_experts.*.linear_fc1.weight")
         ]
-        assert any(p.endswith("linear_fc1.weight") for p in seq_params)
-        assert any(p.endswith("linear_fc2.weight") for p in seq_params)
+        seq_fc2 = [
+            m
+            for m in registry.mappings
+            if getattr(m, "megatron_param", "").endswith("local_experts.*.linear_fc2.weight")
+        ]
+        assert len(seq_fc1) == 1 and type(seq_fc1[0]).__name__ == "FusedGatedExpertMapping"
+        assert seq_fc1[0].hf_param.endswith("experts.gate_up_proj")
+        assert len(seq_fc2) == 1 and type(seq_fc2[0]).__name__ == "FusedExpertMapping"
+        assert seq_fc2[0].hf_param.endswith("experts.down_proj")
+
+
+def test_fuse_per_expert_hf_weight():
+    """Per-expert HF experts are assembled into the fused layout the expert mappings expect."""
+    from megatron.bridge.models.conversion.model_bridge import _fuse_per_expert_hf_weight
+
+    num_experts, ffn, hidden = 12, 3, 2
+    base = "model.layers.0.mlp.experts"
+    sd = {}
+    for i in range(num_experts):
+        sd[f"{base}.{i}.gate_proj.weight"] = torch.full((ffn, hidden), float(i))
+        sd[f"{base}.{i}.up_proj.weight"] = torch.full((ffn, hidden), float(i) + 0.5)
+        sd[f"{base}.{i}.down_proj.weight"] = torch.full((hidden, ffn), float(i))
+
+    gate_up = _fuse_per_expert_hf_weight(f"{base}.gate_up_proj", sd)
+    assert gate_up.shape == (num_experts, 2 * ffn, hidden)
+    # Expert 10 must land in slot 10 (numeric, not lexicographic, ordering); gate stacked above up.
+    assert torch.equal(gate_up[10, :ffn], torch.full((ffn, hidden), 10.0))
+    assert torch.equal(gate_up[10, ffn:], torch.full((ffn, hidden), 10.5))
+
+    down = _fuse_per_expert_hf_weight(f"{base}.down_proj", sd)
+    assert down.shape == (num_experts, hidden, ffn)
+    assert torch.equal(down[10], torch.full((hidden, ffn), 10.0))
+
+    # No per-expert weights present -> KeyError (caller then re-raises the missing fused key).
+    with pytest.raises(KeyError):
+        _fuse_per_expert_hf_weight(f"{base}.gate_up_proj", {})
