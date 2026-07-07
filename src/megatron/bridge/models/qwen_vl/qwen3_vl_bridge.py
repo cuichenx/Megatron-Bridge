@@ -378,15 +378,18 @@ class Qwen3VLMoEBridge(MegatronModelBridge):
                     hf_param="model.language_model.layers.*.mlp.experts.down_proj",
                     transpose_on_export=True,
                 ),
-                # Sequential (non-grouped) experts <-> per-expert unfused HF (e.g. ModelOpt pruning).
-                GatedMLPMapping(
+                # Sequential (non-grouped) experts, used when moe_grouped_gemm is disabled
+                # (e.g. ModelOpt pruning). The decoder stores experts fused; per-expert-stored
+                # checkpoints are assembled into the fused layout by maybe_modify_loaded_hf_weight.
+                FusedGatedExpertMapping(
                     megatron_param="language_model.decoder.layers.*.mlp.experts.local_experts.*.linear_fc1.weight",
-                    gate="model.language_model.layers.*.mlp.experts.*.gate_proj.weight",
-                    up="model.language_model.layers.*.mlp.experts.*.up_proj.weight",
+                    hf_param="model.language_model.layers.*.mlp.experts.gate_up_proj",
+                    transpose_on_export=True,
                 ),
-                AutoMapping(
+                FusedExpertMapping(
                     megatron_param="language_model.decoder.layers.*.mlp.experts.local_experts.*.linear_fc2.weight",
-                    hf_param="model.language_model.layers.*.mlp.experts.*.down_proj.weight",
+                    hf_param="model.language_model.layers.*.mlp.experts.down_proj",
+                    transpose_on_export=True,
                 ),
                 # QKV mapping for vision model
                 ConcatenatedQKVMapping(

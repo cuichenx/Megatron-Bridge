@@ -323,6 +323,35 @@ def _megatron_local_name_to_global(
     return param_name
 
 
+def _fuse_per_expert_hf_weight(hf_param: str, hf_state_dict: Mapping[str, torch.Tensor]) -> torch.Tensor:
+    """Assemble a fused MoE expert tensor from per-expert HF weights.
+
+    Routed experts are stored either fused (``experts.gate_up_proj`` / ``experts.down_proj`` of shape
+    ``[num_experts, ...]``) or per-expert (``experts.{i}.gate_proj`` / ``up_proj`` / ``down_proj``),
+    depending on the transformers version that saved the checkpoint. The expert mappings expect the
+    fused layout, so for a per-expert checkpoint we stack the per-expert weights into the fused tensor.
+    Raises ``KeyError`` if per-expert weights are also absent.
+    """
+    base, proj = hf_param.rsplit(".", 1)  # base = "...experts", proj = "gate_up_proj" | "down_proj"
+    per_expert_re = re.compile(rf"^{re.escape(base)}\.(\d+)\.")
+    expert_ids = sorted({int(m.group(1)) for k in hf_state_dict.keys() if (m := per_expert_re.match(k))})  # noqa: SIM118
+    if not expert_ids:
+        raise KeyError(hf_param)
+    if proj == "gate_up_proj":
+        # Fused gate_up: [num_experts, 2 * ffn, hidden], gate stacked above up per expert.
+        return torch.stack(
+            [
+                torch.cat(
+                    [hf_state_dict[f"{base}.{i}.gate_proj.weight"], hf_state_dict[f"{base}.{i}.up_proj.weight"]],
+                    dim=0,
+                )
+                for i in expert_ids
+            ],
+            dim=0,
+        )
+    return torch.stack([hf_state_dict[f"{base}.{i}.down_proj.weight"] for i in expert_ids], dim=0)
+
+
 class MegatronModelBridge(
     MegatronPeftBridge, MegatronQuantizationBridge, Generic[HFPreTrained, ModelProviderTarget, MegatronModel]
 ):
@@ -874,7 +903,13 @@ class MegatronModelBridge(
             The loaded weights.
         """
         if isinstance(hf_param, str):
-            hf_weights = hf_state_dict[hf_param]
+            try:
+                hf_weights = hf_state_dict[hf_param]
+            except KeyError:
+                # MoE experts stored per-expert (some transformers versions) rather than fused; assemble.
+                if hf_param.endswith((".experts.gate_up_proj", ".experts.down_proj")):
+                    return _fuse_per_expert_hf_weight(hf_param, hf_state_dict)
+                raise
         else:
             hf_weights = {k: hf_state_dict[v] for k, v in hf_param.items()}
         return hf_weights
