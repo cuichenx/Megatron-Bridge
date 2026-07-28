@@ -943,7 +943,7 @@ def qwen35_vl_35b_a3b_sft_long_context_32gpu_h100_bf16_config() -> ConfigContain
 
     Default configuration: 32 GPUs
     - TP=1, PP=2, CP=2, EP=8
-    - MBS=2, GBS=512 with deferred in-batch packing
+    - MBS=1, GBS=512 with deferred in-batch packing
     - Sequence length: 8192
     """
     cfg = qwen35_vl_35b_a3b_sft_16gpu_h100_bf16_config()
@@ -955,7 +955,7 @@ def qwen35_vl_35b_a3b_sft_long_context_32gpu_h100_bf16_config() -> ConfigContain
     cfg.model.recompute_method = "uniform"
     cfg.model.recompute_num_layers = 1
 
-    cfg.train.micro_batch_size = 2
+    cfg.train.micro_batch_size = 1
 
     cfg.dataset.seq_length = 8192
     cfg.dataset.enable_in_batch_packing = True
