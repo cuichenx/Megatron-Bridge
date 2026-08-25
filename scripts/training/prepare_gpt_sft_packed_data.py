@@ -68,6 +68,11 @@ def main() -> None:
         help="Tokenizer worker processes. Values less than or equal to 1 run serially (default: 1).",
     )
     parser.add_argument(
+        "--use-gigatoken",
+        action="store_true",
+        help="Use the optional GigaToken backend for supported fast Hugging Face tokenizers.",
+    )
+    parser.add_argument(
         "--stream-packed-parquet",
         action="store_true",
         help="Fill and write Parquet row groups incrementally to bound token-list conversion memory.",
@@ -112,11 +117,13 @@ def main() -> None:
         sys.exit(f"Error: recipe '{args.recipe}' has no offline packing specs.")
 
     offline_packing_specs.num_tokenizer_workers = args.num_tokenizer_workers
+    offline_packing_specs.use_gigatoken = args.use_gigatoken
     offline_packing_specs.stream_packed_parquet = args.stream_packed_parquet
 
     logger.info("Recipe:   %s", args.recipe)
     logger.info("Seq len:  %s", offline_packing_specs.packed_sequence_size)
     logger.info("Workers:  %s", offline_packing_specs.num_tokenizer_workers)
+    logger.info("GigaToken: %s", offline_packing_specs.use_gigatoken)
     logger.info("Streaming Parquet: %s", offline_packing_specs.stream_packed_parquet)
 
     logger.info("Building tokenizer...")
@@ -151,6 +158,7 @@ def main() -> None:
             dataset_kwargs=builder.dataset_kwargs,
             pad_seq_to_mult=offline_packing_specs.pad_seq_to_mult,
             num_tokenizer_workers=offline_packing_specs.num_tokenizer_workers,
+            use_gigatoken=offline_packing_specs.use_gigatoken,
             stream_packed_parquet=offline_packing_specs.stream_packed_parquet,
             dataset_builder=build_gpt_sft_split,
         )
@@ -167,6 +175,7 @@ def main() -> None:
                 dataset_kwargs=builder.dataset_kwargs,
                 pad_seq_to_mult=offline_packing_specs.pad_seq_to_mult,
                 num_tokenizer_workers=offline_packing_specs.num_tokenizer_workers,
+                use_gigatoken=offline_packing_specs.use_gigatoken,
                 stream_packed_parquet=offline_packing_specs.stream_packed_parquet,
                 dataset_builder=build_gpt_sft_split,
             )

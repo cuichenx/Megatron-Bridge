@@ -51,6 +51,7 @@ def test_config_round_trip_is_declarative_and_serializable(tmp_path):
         packed_sequence_size=128,
         max_single_sequence_length=120,
         pad_seq_to_mult=8,
+        use_gigatoken=True,
         stream_packed_parquet=True,
     )
     config = GPTSFTDatasetConfig(
@@ -73,6 +74,7 @@ def test_config_round_trip_is_declarative_and_serializable(tmp_path):
     assert restored.hf_dataset.dataset_name == "squad"
     assert restored.offline_packing_specs.packed_sequence_size == 128
     assert restored.offline_packing_specs.max_single_sequence_length == 120
+    assert restored.offline_packing_specs.use_gigatoken is True
     assert restored.offline_packing_specs.stream_packed_parquet is True
     assert isinstance(restored.preprocessing, PromptCompletionSFTPreprocessingConfig)
     assert "tokenizer" not in serialized
@@ -717,6 +719,7 @@ def test_hf_rewrite_regenerates_existing_builder_managed_packed_data(monkeypatch
         max_single_sequence_length=120,
         tokenizer_model_name="test-tokenizer",
         num_tokenizer_workers=8,
+        use_gigatoken=True,
         stream_packed_parquet=True,
     )
     config = GPTSFTDatasetConfig(
@@ -746,6 +749,7 @@ def test_hf_rewrite_regenerates_existing_builder_managed_packed_data(monkeypatch
     assert [call["input_path"].name for call in pack_calls] == ["training.jsonl", "validation.jsonl"]
     assert all(call["max_seq_length"] == 120 for call in pack_calls)
     assert all(call["num_tokenizer_workers"] == 8 for call in pack_calls)
+    assert all(call["use_gigatoken"] is True for call in pack_calls)
     assert all(call["stream_packed_parquet"] is True for call in pack_calls)
     assert json.loads(builder.pack_metadata.read_text()) == []
 

@@ -34,6 +34,7 @@ from megatron.bridge.data.packing.algorithms import (
     fill_packing_strategy,
     iter_packing_strategy,
 )
+from megatron.bridge.data.packing.gigatoken import packed_sft_tokenizer_backend
 from megatron.bridge.training.tokenizers.tokenizer import MegatronTokenizer
 
 
@@ -188,6 +189,7 @@ def tokenize_dataset(
     dataset_kwargs: dict | None = None,
     pad_seq_to_mult: int | None = 1,
     num_tokenizer_workers: int = -1,
+    use_gigatoken: bool = False,
     *,
     dataset_builder: Callable[..., Any],
 ):
@@ -206,6 +208,7 @@ def tokenize_dataset(
             preparation (e.g., set to 2 * context_parallel_size for THD CP).
         num_tokenizer_workers: Number of worker processes used to materialize tokenized samples.
             Values less than or equal to 1 run serially.
+        use_gigatoken: Use the optional GigaToken backend for supported Hugging Face tokenizers.
         dataset_builder: Builder-owned callable that constructs one unpacked GPT SFT split.
 
     Returns:
@@ -245,24 +248,32 @@ def tokenize_dataset(
             )
     stored_max_seq_length = runtime_max_seq_length + 1 if max_runtime_pad_cap is not None else runtime_max_seq_length
 
-    dataset = dataset_builder(
-        path,
-        tokenizer=tokenizer,
-        seq_length=stored_max_seq_length,
-        memmap_workers=2,
-        seed=seed,
-        packed_sequence_size=-1,
-        is_test=True,
-        dataset_kwargs={"pad_seq_length_to_mult": pad_seq_length_to_mult, **dataset_kwargs},
+    requires_chat_template = bool(
+        dataset_kwargs.get("chat", False) and dataset_kwargs.get("use_hf_tokenizer_chat_template", True)
     )
-    if dataset is None:
-        raise FileNotFoundError(f"GPT SFT input path does not exist: {path}")
+    with packed_sft_tokenizer_backend(
+        tokenizer,
+        use_gigatoken=use_gigatoken,
+        requires_chat_template=requires_chat_template,
+    ):
+        dataset = dataset_builder(
+            path,
+            tokenizer=tokenizer,
+            seq_length=stored_max_seq_length,
+            memmap_workers=2,
+            seed=seed,
+            packed_sequence_size=-1,
+            is_test=True,
+            dataset_kwargs={"pad_seq_length_to_mult": pad_seq_length_to_mult, **dataset_kwargs},
+        )
+        if dataset is None:
+            raise FileNotFoundError(f"GPT SFT input path does not exist: {path}")
 
-    pad_id = dataset.tokenizer.eod
-    pad_seq_length_to_mult = dataset.pad_seq_length_to_mult
-    max_seq_length = runtime_max_seq_length
+        pad_id = dataset.tokenizer.eod
+        pad_seq_length_to_mult = dataset.pad_seq_length_to_mult
+        max_seq_length = runtime_max_seq_length
 
-    dataset = _materialize_dataset_items(dataset, num_tokenizer_workers)
+        dataset = _materialize_dataset_items(dataset, num_tokenizer_workers)
 
     if max_runtime_pad_cap is not None:
 
@@ -290,6 +301,7 @@ def prepare_gpt_sft_packed_data(
     dataset_kwargs: dict | None = None,
     pad_seq_to_mult: int | None = 1,
     num_tokenizer_workers: int = -1,
+    use_gigatoken: bool = False,
     stream_packed_parquet: bool = False,
     *,
     dataset_builder: Callable[..., Any],
@@ -313,6 +325,7 @@ def prepare_gpt_sft_packed_data(
             preparation (e.g., set to 2 * context_parallel_size for THD CP).
         num_tokenizer_workers: Number of worker processes used to materialize tokenized samples.
             Values less than or equal to 1 run serially.
+        use_gigatoken: Use the optional GigaToken backend for supported Hugging Face tokenizers.
         stream_packed_parquet: Fill and write Parquet row groups incrementally instead of retaining
             corpus-sized Python token lists. This option is not supported for legacy NumPy output.
         dataset_builder: Builder-owned callable that constructs one unpacked GPT SFT split.
@@ -333,6 +346,7 @@ def prepare_gpt_sft_packed_data(
         dataset_kwargs,
         pad_seq_to_mult=pad_seq_to_mult,
         num_tokenizer_workers=num_tokenizer_workers,
+        use_gigatoken=use_gigatoken,
         dataset_builder=dataset_builder,
     )
     sequences, histogram = create_hist(dataset, max_seq_length)

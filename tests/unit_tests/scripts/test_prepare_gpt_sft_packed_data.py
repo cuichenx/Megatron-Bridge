@@ -35,6 +35,7 @@ class _PackedSequenceSpecs:
     packed_sequence_size: int = 2048
     pad_seq_to_mult: int = 8
     num_tokenizer_workers: int = -1
+    use_gigatoken: bool = False
     stream_packed_parquet: bool = False
 
 
@@ -188,6 +189,7 @@ def test_prepare_gpt_sft_packed_data_forwards_supported_overrides_and_explicit_p
             "4096",
             "--hf-path",
             "nvidia/unit",
+            "--use-gigatoken",
             "--stream-packed-parquet",
             *worker_args,
             "--train-input-path",
@@ -210,6 +212,7 @@ def test_prepare_gpt_sft_packed_data_forwards_supported_overrides_and_explicit_p
     assert kwargs["packed_sequence_size"] == 2048
     assert kwargs["max_seq_length"] == 4096
     assert kwargs["num_tokenizer_workers"] == expected_workers
+    assert kwargs["use_gigatoken"] is True
     assert kwargs["stream_packed_parquet"] is True
     assert kwargs["dataset_kwargs"] == {
         "chat": "template",
@@ -217,7 +220,7 @@ def test_prepare_gpt_sft_packed_data_forwards_supported_overrides_and_explicit_p
     }
 
 
-def test_prepare_gpt_sft_packed_data_forwards_streaming_and_worker_count_to_default_builder(monkeypatch):
+def test_prepare_gpt_sft_packed_data_forwards_backend_and_worker_count_to_default_builder(monkeypatch):
     module = _load_module()
 
     def unit_recipe():
@@ -233,6 +236,7 @@ def test_prepare_gpt_sft_packed_data_forwards_streaming_and_worker_count_to_defa
             "unit_recipe",
             "--num-tokenizer-workers",
             "8",
+            "--use-gigatoken",
             "--stream-packed-parquet",
         ],
     )
@@ -242,5 +246,6 @@ def test_prepare_gpt_sft_packed_data_forwards_streaming_and_worker_count_to_defa
     assert len(_GPTSFTDatasetBuilder.instances) == 1
     builder = _GPTSFTDatasetBuilder.instances[0]
     assert builder.kwargs["config"].offline_packing_specs.num_tokenizer_workers == 8
+    assert builder.kwargs["config"].offline_packing_specs.use_gigatoken is True
     assert builder.kwargs["config"].offline_packing_specs.stream_packed_parquet is True
     assert builder.prepare_data_called

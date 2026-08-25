@@ -49,6 +49,26 @@ row; it does not materialize an offline dataset or load the full source into
 RAM. Use a microbatch-yielding `single` or `cyclic` dataloader; GPT-SFT
 in-batch packing does not support the global-batch `batch` dataloader.
 
+### Optional GigaToken encoding
+
+Offline GPT SFT preparation can use GigaToken as an opt-in encoding backend.
+Bridge still performs chat-template rendering, loss-mask construction,
+truncation, padding, packing assignment, and output writing; only supported
+Hugging Face encode calls are redirected. Install GigaToken in the preparation
+environment and set:
+
+```python
+cfg.dataset.offline_packing_specs.use_gigatoken = True
+```
+
+The preparation CLI also accepts `--use-gigatoken`. GigaToken is imported only
+when enabled, so it remains an optional dependency and the default Hugging Face
+path is unchanged. The validated GigaToken 0.10 path requires a fast Hugging
+Face tokenizer. Tokenizer worker processes can parallelize per-sample chat
+rendering, mask construction, and encoding. Tokenizers with custom
+`apply_chat_template` implementations or Jinja generation blocks are rejected
+because that release cannot preserve their assistant-mask contract.
+
 ### Bounded-memory Parquet preparation
 
 For large offline Parquet preparations, set

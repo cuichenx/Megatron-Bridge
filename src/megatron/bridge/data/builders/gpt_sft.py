@@ -610,6 +610,9 @@ class GPTSFTDatasetBuilder:
         self._num_tokenizer_workers = (
             -1 if config.offline_packing_specs is None else config.offline_packing_specs.num_tokenizer_workers
         )
+        self._use_gigatoken = (
+            False if config.offline_packing_specs is None else config.offline_packing_specs.use_gigatoken
+        )
         self._stream_packed_parquet = (
             False if config.offline_packing_specs is None else config.offline_packing_specs.stream_packed_parquet
         )
@@ -710,6 +713,7 @@ class GPTSFTDatasetBuilder:
             dataset_kwargs=self.dataset_kwargs,
             pad_seq_to_mult=self._pad_seq_to_mult,
             num_tokenizer_workers=self._num_tokenizer_workers,
+            use_gigatoken=self._use_gigatoken,
             stream_packed_parquet=self._stream_packed_parquet,
             dataset_builder=build_gpt_sft_split,
         )
